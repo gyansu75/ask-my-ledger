@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AskMyLedger | AI PayPal Financial Analyst</title>
+    <!-- AG Grid Community CDN Styles & Script -->
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-community/dist/ag-grid-community.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f6; margin: 0; padding: 20px; color: #333; }
+        header { background: #003087; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+        header h1 { margin: 0; font-size: 24px; }
+        header p { margin: 0; opacity: 0.85; font-size: 14px; }
+        .container { display: flex; flex-direction: column; gap: 20px; }
+        .chat-box { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .chat-controls { display: flex; gap: 10px; margin-top: 10px; }
+        input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 16px; }
+        button { padding: 12px 20px; background: #0070ba; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; font-weight: 600; }
+        button:hover { background: #003087; }
+        .btn-secondary { background: #107c41; }
+        .btn-secondary:hover { background: #0b532b; }
+        #ai-response { margin-top: 15px; font-weight: 600; color: #0070ba; font-size: 15px; }
+        .grid-header-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        #myGrid { width: 100%; height: 500px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div>
+            <h1>AskMyLedger</h1>
+            <p>AI Financial Analyst & Interactive Dashboard powered by PayPal & AG Grid</p>
+        </div>
+        <div>
+            <button class="btn-secondary" onclick="exportData()">📥 Export Grid CSV</button>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Natural Language Chat Input -->
+        <div class="chat-box">
+            <h3>Ask your financial ledger in plain English:</h3>
+            <div class="chat-controls">
+                <input type="text" id="promptInput" placeholder="e.g., 'Show me all refunded subscriptions' or 'Who owes pending payments?'" onkeypress="handleKeyPress(event)">
+                <button onclick="sendQuery()">Ask AI Copilot</button>
+            </div>
+            <div id="ai-response"></div>
+        </div>
+
+        <!-- AG Grid Component -->
+        <div class="grid-header-actions">
+            <h3 style="margin: 0;">Transaction Records & Real-Time Aggregations</h3>
+        </div>
+        <div id="myGrid" class="ag-theme-alpine"></div>
+    </div>
+
+    <script>
+        let gridApi;
+
+        const gridOptions = {
+            columnDefs: [
+                { field: "transaction_id", headerName: "Transaction ID", sortable: true, filter: true, pinned: 'left' },
+                { field: "date", headerName: "Date", sortable: true, filter: true },
+                { field: "customer", headerName: "Customer / Merchant", sortable: true, filter: true },
+                { 
+                    field: "amount", 
+                    headerName: "Amount ($)", 
+                    sortable: true, 
+                    filter: true,
+                    cellStyle: { fontWeight: 'bold', color: '#003087' },
+                    valueFormatter: params => '$' + params.value.toLocaleString(undefined, {minimumFractionDigits: 2})
+                },
+                { 
+                    field: "status", 
+                    headerName: "Status", 
+                    sortable: true, 
+                    filter: true,
+                    cellStyle: params => {
+                        if (params.value === 'Completed') return { color: 'green', fontWeight: 'bold' };
+                        if (params.value === 'Refunded') return { color: '#d9534f', fontWeight: 'bold' };
+                        return { color: '#f0ad4e', fontWeight: 'bold' };
+                    }
+                },
+                { field: "type", headerName: "Type", sortable: true, filter: true },
+                { field: "refund_reason", headerName: "Refund Reason", sortable: true, filter: true }
+            ],
+            defaultColDef: { flex: 1, minWidth: 140, resizable: true, enableCellTextSelection: true },
+            rowData: [],
+            pinnedBottomRowData: []
+        };
+
+        // Initialize AG Grid on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            const gridDiv = document.querySelector('#myGrid');
+            gridApi = agGrid.createGrid(gridDiv, gridOptions);
+            loadAllTransactions();
+        });
+
+        // Compute and update Pinned Bottom Total Row
+        function updateTotals(data) {
+            const totalSum = data.reduce((acc, row) => acc + (row.amount || 0), 0);
+            const pinnedBottomData = [
+                {
+                    transaction_id: "TOTAL VOLUME",
+                    date: "-",
+                    customer: `${data.length} Filtered Transactions`,
+                    amount: totalSum,
+                    status: "-",
+                    type: "-",
+                    refund_reason: "-"
+                }
+            ];
+            gridApi.setGridOption('pinnedBottomRowData', pinnedBottomData);
+        }
+
+        async function loadAllTransactions() {
+            try {
+                const res = await fetch('/api/transactions');
+                const data = await res.json();
+                gridApi.setGridOption('rowData', data.transactions);
+                updateTotals(data.transactions);
+            } catch (err) {
+                console.error("Error loading transactions:", err);
+            }
+        }
+
+        async function sendQuery() {
+            const prompt = document.getElementById('promptInput').value;
+            if (!prompt) return;
+
+            document.getElementById('ai-response').innerText = "🤖 Analyzing ledger via Groq AI & PayPal sandbox data...";
+
+            try {
+                const res = await fetch('/api/ask', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt })
+                });
+                const responseData = await res.json();
+                
+                document.getElementById('ai-response').innerText = "💡 " + responseData.result.message;
+                const filteredData = responseData.result.data;
+                
+                gridApi.setGridOption('rowData', filteredData);
+                updateTotals(filteredData);
+            } catch (err) {
+                document.getElementById('ai-response').innerText = "⚠️ Error executing AI query.";
+                console.error(err);
+            }
+        }
+
+        function handleKeyPress(e) {
+            if (e.key === 'Enter') {
+                sendQuery();
+            }
+        }
+
+        function exportData() {
+            gridApi.exportDataAsCsv({ fileName: "AskMyLedger_Transactions.csv" });
+        }
+    </script>
+</body>
+</html>
